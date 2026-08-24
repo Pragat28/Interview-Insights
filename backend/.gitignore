@@ -61,3 +61,7 @@ Thumbs.db
 # ================================
 
 .streamlit/secrets.toml
+# Local testing scripts
+embedding-test.py
+similarity_test.py
+test_*.py
