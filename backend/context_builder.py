@@ -1,405 +1,154 @@
-import re
+from pathlib import Path
+
 import pandas as pd
 
 from search_embeddings import search
 
 
 # =========================================================
-# 1. Load dataset
+# 1. Project paths
+# =========================================================
+
+BASE_DIR = Path(__file__).resolve().parent
+DATA_DIR = BASE_DIR.parent / "data"
+
+
+# =========================================================
+# 2. Load dataset
 # =========================================================
 
 df = pd.read_csv(
-    "../data/interview_insights_dataset (1).csv"
+    DATA_DIR / "interview_insights_dataset (1).csv"
 )
 
 
 # =========================================================
-# 2. Query type -> relevant dataset fields
-# =========================================================
-
-QUERY_FIELDS = {
-
-    "preparation": [
-        "test_preparation",
-        "important_topics",
-        "resources"
-    ],
-
-    "selection": [
-        "selection_procedure",
-        "test_description",
-        "interview_experience"
-    ],
-
-    "test": [
-        "test_description",
-        "test_preparation",
-        "important_topics"
-    ],
-
-    "interview": [
-        "interview_experience",
-        "important_topics"
-    ],
-
-    "eligibility": [
-        "eligibility"
-    ],
-
-    "topics": [
-        "important_topics"
-    ],
-
-    "projects": [
-        "projects",
-        "interview_experience"
-    ],
-
-    "compensation": [
-        "compensation"
-    ],
-
-    "advice": [
-        "junior_advice",
-        "last_minute_preparation"
-    ]
-}
-
-
-# =========================================================
-# 3. Keywords -> query type
-# =========================================================
-
-QUERY_KEYWORDS = {
-
-    "preparation": [
-        "how should i prepare",
-        "how do i prepare",
-        "how to prepare",
-        "prepare for",
-        "preparation",
-        "prepare",
-        "practice",
-        "learn",
-        "ready"
-    ],
-
-    "selection": [
-        "selection process",
-        "selection procedure",
-        "selection",
-        "rounds",
-        "stages"
-    ],
-
-    "test": [
-        "online assessment",
-        "coding test",
-        "assessment",
-        "test",
-        "oa"
-    ],
-
-    "interview": [
-        "technical interview",
-        "technical round",
-        "hr interview",
-        "hr round",
-        "interview questions",
-        "questions asked",
-        "what questions",
-        "what was asked",
-        "what were asked",
-        "interview experience",
-        "interview"
-    ],
-
-    "eligibility": [
-        "eligibility",
-        "eligible",
-        "cgpa",
-        "criteria"
-    ],
-
-    "topics": [
-        "computer networks",
-        "operating system",
-        "topics",
-        "subjects",
-        "dsa",
-        "dbms",
-        "oops",
-        "os",
-        "cn"
-    ],
-
-    "projects": [
-        "what projects",
-        "which projects",
-        "projects",
-        "project",
-        "resume"
-    ],
-
-    "compensation": [
-        "compensation",
-        "stipend",
-        "salary",
-        "package",
-        "ctc"
-    ],
-
-    "advice": [
-        "last minute",
-        "suggestions",
-        "advice",
-        "tips",
-        "juniors"
-    ]
-}
-
-
-# =========================================================
-# 4. Helper: phrase matching
-# =========================================================
-
-def contains_phrase(query, phrase):
-
-    query = query.lower()
-    phrase = phrase.lower()
-
-    pattern = r"\b" + re.escape(phrase) + r"\b"
-
-    return bool(
-        re.search(
-            pattern,
-            query
-        )
-    )
-
-
-# =========================================================
-# 5. Detect query types
-# =========================================================
-
-def detect_query_types(query):
-
-    detected_types = []
-
-    query = query.lower()
-
-    for query_type, keywords in QUERY_KEYWORDS.items():
-
-        # Check longer phrases first
-        keywords = sorted(
-            keywords,
-            key=len,
-            reverse=True
-        )
-
-        for keyword in keywords:
-
-            if contains_phrase(
-                query,
-                keyword
-            ):
-
-                detected_types.append(
-                    query_type
-                )
-
-                break
-
-    return detected_types
-
-
-# =========================================================
-# 6. Determine whether "interview" is a real intent
-# =========================================================
-
-def has_explicit_interview_question(query):
-
-    explicit_phrases = [
-
-        "questions asked",
-        "what questions",
-        "what was asked",
-        "what were asked",
-        "which questions",
-        "interview questions",
-        "interview experience",
-        "technical round",
-        "hr round",
-        "hr interview"
-    ]
-
-    for phrase in explicit_phrases:
-
-        if contains_phrase(
-            query,
-            phrase
-        ):
-
-            return True
-
-    return False
-
-
-# =========================================================
-# 7. Find fields required for query
-# =========================================================
-
-def get_relevant_fields(query):
-
-    detected_types = detect_query_types(
-        query
-    )
-
-    query_types = detected_types.copy()
-
-
-    # =====================================================
-    # Handle interview intent
-    # =====================================================
-
-    # Example:
-    #
-    # "How should I prepare for BNY's technical interview?"
-    #
-    # Detected:
-    # preparation + interview
-    #
-    # But "interview" here only describes the thing
-    # we are preparing for. It is NOT asking what happened
-    # in previous interviews.
-    #
-    # Therefore remove interview.
-    #
-    # -----------------------------------------------------
-    #
-    # Example:
-    #
-    # "What projects should I explain and what questions
-    # were asked?"
-    #
-    # Detected:
-    # projects + interview
-    #
-    # Here interview IS a genuine intent, so keep it.
-    # =====================================================
-
-    if (
-        "preparation" in query_types
-        and "interview" in query_types
-        and not has_explicit_interview_question(query)
-    ):
-
-        query_types.remove(
-            "interview"
-        )
-
-
-    # =====================================================
-    # Build final field list
-    # =====================================================
-
-    fields = []
-
-    for query_type in query_types:
-
-        for field in QUERY_FIELDS[
-            query_type
-        ]:
-
-            if field not in fields:
-
-                fields.append(
-                    field
-                )
-
-
-    # =====================================================
-    # Fallback
-    # =====================================================
-
-    if not fields:
-
-        fields = [
-            "selection_procedure",
-            "test_description",
-            "test_preparation",
-            "interview_experience",
-            "important_topics"
-        ]
-
-
-    return (
-        query_types,
-        fields
-    )
-
-
-# =========================================================
-# 8. Build context
+# 3. Build context
 # =========================================================
 
 def build_context(query):
 
-    # -----------------------------------------------------
-    # Retrieve relevant experiences
-    # -----------------------------------------------------
+    # =====================================================
+    # Retrieval
+    #
+    # search() now performs:
+    #
+    # query
+    #   -> intent embeddings
+    #   -> top-K intents
+    #   -> intent resolver LLM
+    #   -> document retrieval
+    #
+    # Therefore we MUST use the query_types and fields
+    # returned by search().
+    # =====================================================
 
     search_result = search(
         query
     )
 
 
-    # -----------------------------------------------------
-    # Determine query types and fields
-    # -----------------------------------------------------
+    # =====================================================
+    # Get resolved intents and fields
+    # =====================================================
 
-    query_types, fields = (
-        get_relevant_fields(
-            query
+    query_types = search_result[
+        "query_types"
+    ]
+
+    fields = search_result[
+        "relevant_fields"
+    ]
+
+
+    # =====================================================
+    # Unknown company
+    # =====================================================
+
+    if (
+        search_result.get(
+            "company_was_mentioned",
+            False
         )
-    )
+        and not search_result[
+            "matched_companies"
+        ]
+    ):
 
+        return {
+
+            "query":
+                query,
+
+            "company":
+                [],
+
+            "candidate_count":
+                0,
+
+            "company_was_mentioned":
+                True,
+
+            "query_types":
+                query_types,
+
+            "fields":
+                fields,
+
+            "context":
+                ""
+        }
+
+
+    # =====================================================
+    # Build context
+    # =====================================================
 
     context_parts = []
 
 
-    # -----------------------------------------------------
-    # Build context from retrieved documents
-    # -----------------------------------------------------
+    for result in search_result[
+        "results"
+    ]:
 
-    for result in search_result["results"]:
-
-        index = result["index"]
+        index = result[
+            "index"
+        ]
 
         row = df.iloc[
             index
         ]
 
 
-        # -------------------------------------------------
+        # =================================================
         # Basic metadata
-        # -------------------------------------------------
+        # =================================================
 
         text = (
-            f"Company: {row['company']}\n"
-            f"Experience Type: {row['experience_type']}\n"
-            f"Branch: {row['branch']}\n"
-            f"Role: {row['role']}\n"
+
+            f"Company: "
+            f"{row['company']}\n"
+
+            f"Experience Type: "
+            f"{row['experience_type']}\n"
+
+            f"Branch: "
+            f"{row['branch']}\n"
+
+            f"Role: "
+            f"{row['role']}\n"
+
         )
 
 
-        # -------------------------------------------------
-        # Add only relevant fields
-        # -------------------------------------------------
+        # =================================================
+        # Relevant fields only
+        # =================================================
 
         for field in fields:
 
             value = row[field]
+
 
             if (
                 pd.notna(value)
@@ -407,9 +156,11 @@ def build_context(query):
             ):
 
                 text += (
-                    f"\n"
+
+                    "\n"
                     f"{field.replace('_', ' ').title()}:\n"
                     f"{value}\n"
+
                 )
 
 
@@ -418,21 +169,24 @@ def build_context(query):
         )
 
 
-    # -----------------------------------------------------
-    # Separate candidate experiences
-    # -----------------------------------------------------
+    # =====================================================
+    # Separate experiences
+    # =====================================================
 
     context = (
+
         "\n"
-        + "\n" + "-" * 70 + "\n"
+        + "-" * 70
+        + "\n"
+
     ).join(
         context_parts
     )
 
 
-    # -----------------------------------------------------
-    # Return context
-    # -----------------------------------------------------
+    # =====================================================
+    # Return
+    # =====================================================
 
     return {
 
@@ -448,6 +202,12 @@ def build_context(query):
             search_result[
                 "candidate_count"
             ],
+
+        "company_was_mentioned":
+            search_result.get(
+                "company_was_mentioned",
+                False
+            ),
 
         "query_types":
             query_types,
