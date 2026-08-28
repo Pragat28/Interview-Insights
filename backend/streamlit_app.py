@@ -1,6 +1,5 @@
+import os
 import streamlit as st
-
-from generate_answer import generate_answer
 
 
 # =========================================================
@@ -203,6 +202,7 @@ div[data-testid="stTextInput"] input:focus {
     border-color: var(--stamp-red);
     box-shadow: 0 0 0 1px var(--stamp-red-dim);
 }
+
 
 /* =========================================================
    BUTTONS
@@ -465,7 +465,9 @@ section[data-testid="stSidebar"] {
     flex-shrink: 0;
 }
 
-.log-line-text { color: var(--text-lo); }
+.log-line-text {
+    color: var(--text-lo);
+}
 
 </style>
 """)
@@ -536,7 +538,10 @@ st.html("""
 <div class="case-header">
     <div>
         <div class="case-eyebrow">Case archive · Student-filed reports</div>
-        <h1 class="case-title">What actually happened<br>in the <span class="accent">interview room.</span></h1>
+        <h1 class="case-title">
+            What actually happened<br>
+            in the <span class="accent">interview room.</span>
+        </h1>
         <div class="case-subtitle">
             Every answer here is built from real interview reports filed by
             students — companies, questions, tests, prep, and advice, all
@@ -574,13 +579,13 @@ ask_clicked = st.button(
 
 
 # =========================================================
-# PROCESS QUERY (rendered immediately below the search box,
-# so the answer never requires scrolling past the examples)
+# PROCESS QUERY
 # =========================================================
 
 if ask_clicked:
 
     if not query.strip():
+
         st.warning("Enter a question first.")
 
     else:
@@ -588,11 +593,42 @@ if ask_clicked:
         with st.spinner("Pulling matching field reports..."):
 
             try:
+
+                # =================================================
+                # GENERATE ANSWER
+                #
+                # Keep the UI unchanged.
+                #
+                # Local:
+                #   generate_answer.py reads GROQ_API_KEY from .env
+                #
+                # Streamlit Cloud:
+                #   GROQ_API_KEY is read from st.secrets and placed
+                #   into the environment before importing the module.
+                # =================================================
+
+                if not os.getenv("GROQ_API_KEY"):
+
+                    try:
+                        if "GROQ_API_KEY" in st.secrets:
+                            os.environ["GROQ_API_KEY"] = st.secrets["GROQ_API_KEY"]
+                    except Exception:
+                        pass
+
+                from generate_answer import generate_answer
+
                 result = generate_answer(query)
+
             except Exception as error:
-                st.error("Something went wrong while processing your question.")
+
+                st.error(
+                    "Something went wrong while processing your question."
+                )
+
                 st.exception(error)
+
                 result = None
+
 
         if result:
 
@@ -600,7 +636,10 @@ if ask_clicked:
             # UNKNOWN COMPANY
             # =================================================
 
-            if result.get("candidate_count", 0) == 0 and not result.get("company"):
+            if (
+                result.get("candidate_count", 0) == 0
+                and not result.get("company")
+            ):
 
                 st.html("""
                 <div class="empty-card">
@@ -620,19 +659,28 @@ if ask_clicked:
 
                 if query not in st.session_state["history"]:
                     st.session_state["history"].insert(0, query)
-                    st.session_state["history"] = st.session_state["history"][:5]
+                    st.session_state["history"] = (
+                        st.session_state["history"][:5]
+                    )
 
                 # =================================================
                 # ANSWER
                 # =================================================
 
-                st.html("""<div class="section-heading">Case brief</div>""")
+                st.html(
+                    """<div class="section-heading">Case brief</div>"""
+                )
 
-                answer_text = result.get("answer", "No answer was generated.")
+                answer_text = result.get(
+                    "answer",
+                    "No answer was generated."
+                )
 
-                st.html(f"""
+                st.html("""
                 <div class="case-brief">
-                    <div class="brief-eyebrow">✦ Answer, from filed reports</div>
+                    <div class="brief-eyebrow">
+                        ✦ Answer, from filed reports
+                    </div>
                 </div>
                 """)
 
@@ -648,12 +696,16 @@ if ask_clicked:
                 if companies_found or query_types:
 
                     tags_html = "".join(
-                        f'<span class="tag-company">🏢 {c}</span>' for c in companies_found
+                        f'<span class="tag-company">🏢 {c}</span>'
+                        for c in companies_found
                     ) + "".join(
-                        f'<span class="tag-topic">#{q}</span>' for q in query_types
+                        f'<span class="tag-topic">#{q}</span>'
+                        for q in query_types
                     )
 
-                    st.html(f'<div class="metadata-row">{tags_html}</div>')
+                    st.html(
+                        f'<div class="metadata-row">{tags_html}</div>'
+                    )
 
                 # =================================================
                 # SOURCES
@@ -664,27 +716,55 @@ if ask_clicked:
                 if results:
 
                     st.html("""
-                    <div class="section-heading">Field reports retrieved</div>
+                    <div class="section-heading">
+                        Field reports retrieved
+                    </div>
                     """)
 
-                    st.caption("Each answer above is built from these filed reports.")
+                    st.caption(
+                        "Each answer above is built from these filed reports."
+                    )
 
                     for source in results:
 
-                        experience_id = source.get("experience_id", "Unknown")
-                        company = source.get("company", "Unknown company")
-                        role = source.get("role", "")
-                        score = source.get("similarity", None)
+                        experience_id = source.get(
+                            "experience_id",
+                            "Unknown"
+                        )
 
-                        with st.expander(f"🏢 {company}  ·  Report {experience_id}"):
+                        company = source.get(
+                            "company",
+                            "Unknown company"
+                        )
+
+                        role = source.get(
+                            "role",
+                            ""
+                        )
+
+                        score = source.get(
+                            "similarity",
+                            None
+                        )
+
+                        with st.expander(
+                            f"🏢 {company}  ·  Report {experience_id}"
+                        ):
 
                             if role:
-                                st.markdown(f"**Role:** {role}")
+                                st.markdown(
+                                    f"**Role:** {role}"
+                                )
 
                             if score is not None:
-                                st.caption(f"Relevance: {float(score):.2f}")
+                                st.caption(
+                                    f"Relevance: {float(score):.2f}"
+                                )
 
-                            document_text = source.get("document_text", "")
+                            document_text = source.get(
+                                "document_text",
+                                ""
+                            )
 
                             if document_text:
                                 st.write(document_text)
@@ -696,7 +776,9 @@ if ask_clicked:
 
 st.html("""
 <div class="section-heading">Common queries</div>
-<div class="example-description">Not sure where to start? Pull one of these.</div>
+<div class="example-description">
+    Not sure where to start? Pull one of these.
+</div>
 """)
 
 
@@ -713,8 +795,15 @@ example_questions = [
 cols = st.columns(2)
 
 for index, example in enumerate(example_questions):
+
     with cols[index % 2]:
-        if st.button(example, key=f"example_{index}", use_container_width=True):
+
+        if st.button(
+            example,
+            key=f"example_{index}",
+            use_container_width=True
+        ):
+
             st.session_state["query"] = example
             st.rerun()
 
@@ -725,10 +814,20 @@ for index, example in enumerate(example_questions):
 
 if st.session_state["history"]:
 
-    st.html("""<div class="section-heading">Recent inquiries</div>""")
+    st.html(
+        """<div class="section-heading">Recent inquiries</div>"""
+    )
 
-    for index, previous_query in enumerate(st.session_state["history"]):
-        if st.button(previous_query, key=f"history_{index}", use_container_width=True):
+    for index, previous_query in enumerate(
+        st.session_state["history"]
+    ):
+
+        if st.button(
+            previous_query,
+            key=f"history_{index}",
+            use_container_width=True
+        ):
+
             st.session_state["query"] = previous_query
             st.rerun()
 
