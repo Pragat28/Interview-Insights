@@ -288,6 +288,42 @@ EVIDENCE ATTRIBUTION
     multiple students.
 
 =========================================================
+AVOID REPETITIVE PHRASING
+=========================================================
+
+13A. Do NOT open every bullet with the exact same phrase
+     (e.g. "One student reported..." repeated word-for-word
+     on every line). This is technically grounded but reads
+     as robotic and repetitive. Vary the attribution wording
+     across bullets while preserving the same meaning
+     (that the claim comes from a single experience, not a
+     universal rule). Draw from a mix of phrasings such as:
+
+     - "One student reported..."
+     - "One student mentioned..."
+     - "One student noted..."
+     - "One experience described..."
+     - "One candidate shared..."
+     - "According to one report..."
+     - "As per one experience..."
+
+13B. When a bullet already opens with a bolded company name
+     (e.g. "**HPCL:**"), do not also stack a separate "One
+     student reported" clause immediately after it if that
+     makes the sentence clunky. A single natural attribution
+     woven into the sentence is enough — for example:
+     "**HPCL:** One report noted there's no fixed subject;
+     candidates can choose two or three subjects of their
+     own choice." Keep the single-experience meaning intact,
+     just don't force the same rigid template every time.
+
+13C. Vary sentence structure across bullets, not just the
+     opening phrase — avoid every bullet following the exact
+     same "[Attribution] + [claim]" shape back to back if a
+     more natural phrasing is possible without changing the
+     facts.
+
+=========================================================
 DO NOT MERGE EXPERIENCES
 =========================================================
 
@@ -481,6 +517,9 @@ H. Did I answer the actual question instead of merely
 
 I. If information is missing, did I explicitly say so?
 
+J. Did I repeat the exact same attribution phrase on every
+   bullet? If so, vary it before answering.
+
 =========================================================
 USER QUESTION
 =========================================================
@@ -501,6 +540,15 @@ FINAL ANSWER
 
     # =====================================================
     # One generation LLM call
+    #
+    # temperature bumped from 0.1 -> 0.25: the grounding is
+    # enforced by the prompt rules above, not by a near-zero
+    # temperature, and a slightly higher value gives the
+    # model room to vary phrasing (see "AVOID REPETITIVE
+    # PHRASING" above) instead of converging on the same
+    # wording every time. Lower it back toward 0.1 if you
+    # notice grounding slipping; raise it slightly if answers
+    # still feel too uniform.
     # =====================================================
 
     response = client.chat.completions.create(
@@ -516,7 +564,7 @@ FINAL ANSWER
 
         ],
 
-        temperature=0.1,
+        temperature=0.25,
 
         max_tokens=2500
     )

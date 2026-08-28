@@ -290,6 +290,104 @@ def detect_explicit_intents(query):
 
 
 # =========================================================
+# 16B. AUTO-GENERATED "CORE NAME" MATCHING
+#
+# Many company names in the dataset carry a parenthetical
+# short form (e.g. "Texas Instruments (TI)") or a trailing
+# legal-entity suffix (e.g. "Qualcomm India Private Ltd.").
+# detect_company() previously required the FULL company
+# string to appear literally inside the user's query — so a
+# user typing just "Texas Instruments" never matched
+# "Texas Instruments (TI)", because the extra "(TI)" token
+# broke the exact substring check.
+#
+# Rather than patch this one company with a manual alias
+# (which only fixes Texas Instruments and leaves every other
+# similarly-formatted company broken), we derive a "core
+# name" for every company by stripping parenthetical text
+# and trailing legal-entity words, and match against that
+# too. This fixes the whole class of bug automatically, for
+# current and future companies in the dataset.
+# =========================================================
+
+LEGAL_SUFFIX_WORDS = {
+    "india", "private", "pvt", "ltd", "limited", "corporation",
+    "corp", "inc", "llc", "co", "plc",
+}
+
+
+def strip_parenthetical(text):
+    return re.sub(r"\(.*?\)", "", str(text))
+
+
+def build_core_name(company):
+    text = strip_parenthetical(company)
+    text = normalize_text(text)
+    words = text.split()
+
+    while words and words[-1] in LEGAL_SUFFIX_WORDS:
+        words.pop()
+
+    return " ".join(words)
+
+
+CORE_NAME_TO_COMPANY = {}
+
+for _company in companies:
+    _core_name = build_core_name(_company)
+    if _core_name and _core_name not in CORE_NAME_TO_COMPANY:
+        CORE_NAME_TO_COMPANY[_core_name] = _company
+
+
+# =========================================================
+# 16C. DISTINCTIVE FIRST-WORD MATCHING
+#
+# Users often drop words entirely, not just suffixes — e.g.
+# typing "texas" instead of "Texas Instruments", or "jindal"
+# instead of "Jindal Stainless Ltd". The core-name fix above
+# only handles trimmed *endings*; it still requires the full
+# remaining phrase to appear in the query.
+#
+# Here we index the first word of every core name, and treat
+# it as a safe standalone match ONLY when that word is long
+# enough (>=4 chars, to avoid short generic words) AND unique
+# across the dataset (exactly one company starts with it, to
+# avoid ambiguity). A few words are excluded even when unique
+# because they collide with common domain terminology — e.g.
+# "Turing" the company vs. "Turing machine" / "Turing test",
+# which come up constantly in CS interview questions.
+# =========================================================
+
+FIRST_WORD_BLACKLIST = {
+    "turing",  # collides with "Turing machine" / "Turing test" (CS topics)
+}
+
+FIRST_WORD_TO_COMPANIES = {}
+
+for _core_name, _company in CORE_NAME_TO_COMPANY.items():
+    _words = _core_name.split()
+    if not _words:
+        continue
+    _first_word = _words[0]
+    if len(_first_word) < 5:
+        continue
+    if _first_word in FIRST_WORD_BLACKLIST:
+        continue
+    FIRST_WORD_TO_COMPANIES.setdefault(_first_word, []).append(_company)
+
+
+def match_distinctive_first_word(normalized_query):
+    query_words = set(normalized_query.split())
+    matched = []
+
+    for first_word, matching_companies in FIRST_WORD_TO_COMPANIES.items():
+        if len(matching_companies) == 1 and first_word in query_words:
+            matched.append(matching_companies[0])
+
+    return matched
+
+
+# =========================================================
 # 17. DETECT COMPANY
 # =========================================================
 
@@ -301,6 +399,14 @@ def detect_company(query):
     for company in companies:
         if phrase_in_text(company, normalized_query):
             matches.append(company)
+
+    # Core names (handles names like "Texas Instruments (TI)")
+    for core_name, company in CORE_NAME_TO_COMPANY.items():
+        if phrase_in_text(core_name, normalized_query):
+            matches.append(company)
+
+    # Distinctive first-word matches (e.g. "texas" -> "Texas Instruments")
+    matches.extend(match_distinctive_first_word(normalized_query))
 
     # spaCy proper nouns
     doc = nlp(query)
@@ -352,6 +458,15 @@ def detect_mentioned_company(query):
     for company in companies:
         if phrase_in_text(company, normalized_query):
             return True
+
+    # Core names (handles names like "Texas Instruments (TI)")
+    for core_name in CORE_NAME_TO_COMPANY:
+        if phrase_in_text(core_name, normalized_query):
+            return True
+
+    # Distinctive first-word matches (e.g. "texas" -> "Texas Instruments")
+    if match_distinctive_first_word(normalized_query):
+        return True
 
     # Aliases
     for alias in COMPANY_ALIASES:
@@ -930,6 +1045,9 @@ if __name__ == "__main__":
         "What DBMS topics should I study?",
         "What DB topics should I study for interviews?",
         "What interview questions were asked at Deutsche Bank?",
+        # new: core-name matching for names with a parenthetical/suffix
+        "What questions were asked at Texas Instruments?",
+        "What is the eligibility for Texas Instruments?",
     ]
 
     for query in test_queries:
