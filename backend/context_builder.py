@@ -29,51 +29,31 @@ df = pd.read_csv(
 def build_context(query):
 
     # =====================================================
-    # Retrieval
+    # Initial retrieval
     #
-    # search() now performs:
-    #
-    # query
-    #   -> intent embeddings
-    #   -> top-K intents
-    #   -> intent resolver LLM
-    #   -> document retrieval
-    #
-    # Therefore we MUST use the query_types and fields
-    # returned by search().
+    # This determines:
+    # - intents
+    # - relevant fields
+    # - mentioned companies
     # =====================================================
 
-    search_result = search(
-        query
+    search_result = search(query)
+
+    query_types = search_result["query_types"]
+    fields = search_result["relevant_fields"]
+
+    company = search_result["matched_companies"]
+    company_was_mentioned = search_result.get(
+        "company_was_mentioned",
+        False
     )
-
-
-    # =====================================================
-    # Get resolved intents and fields
-    # =====================================================
-
-    query_types = search_result[
-        "query_types"
-    ]
-
-    fields = search_result[
-        "relevant_fields"
-    ]
 
 
     # =====================================================
     # Unknown company
     # =====================================================
 
-    if (
-        search_result.get(
-            "company_was_mentioned",
-            False
-        )
-        and not search_result[
-            "matched_companies"
-        ]
-    ):
+    if company_was_mentioned and not company:
 
         return {
 
@@ -101,23 +81,73 @@ def build_context(query):
 
 
     # =====================================================
+    # MULTI-COMPANY RETRIEVAL
+    #
+    # If multiple companies were detected, search for each
+    # company separately.
+    #
+    # This prevents one company's experiences from pushing
+    # another company's experiences out of the top-K results.
+    # =====================================================
+
+    if len(company) > 1:
+
+        all_results = []
+        candidate_count = 0
+
+        for company_name in company:
+
+            company_query = f"{query} at {company_name}"
+
+            company_result = search(
+                company_query
+            )
+
+            candidate_count += company_result.get(
+                "candidate_count",
+                0
+            )
+
+            for result in company_result.get(
+                "results",
+                []
+            ):
+
+                # Avoid duplicate experiences
+                if result["index"] not in [
+                    item["index"]
+                    for item in all_results
+                ]:
+
+                    all_results.append(
+                        result
+                    )
+
+        search_results = all_results
+
+    else:
+
+        candidate_count = search_result[
+            "candidate_count"
+        ]
+
+        search_results = search_result[
+            "results"
+        ]
+
+
+    # =====================================================
     # Build context
     # =====================================================
 
     context_parts = []
 
 
-    for result in search_result[
-        "results"
-    ]:
+    for result in search_results:
 
-        index = result[
-            "index"
-        ]
+        index = result["index"]
 
-        row = df.iloc[
-            index
-        ]
+        row = df.iloc[index]
 
 
         # =================================================
@@ -148,7 +178,6 @@ def build_context(query):
         for field in fields:
 
             value = row[field]
-
 
             if (
                 pd.notna(value)
@@ -194,20 +223,13 @@ def build_context(query):
             query,
 
         "company":
-            search_result[
-                "matched_companies"
-            ],
+            company,
 
         "candidate_count":
-            search_result[
-                "candidate_count"
-            ],
+            candidate_count,
 
         "company_was_mentioned":
-            search_result.get(
-                "company_was_mentioned",
-                False
-            ),
+            company_was_mentioned,
 
         "query_types":
             query_types,
