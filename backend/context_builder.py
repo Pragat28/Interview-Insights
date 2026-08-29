@@ -30,19 +30,24 @@ def build_context(query):
 
     # =====================================================
     # Initial retrieval
-    #
-    # This determines:
-    # - intents
-    # - relevant fields
-    # - mentioned companies
     # =====================================================
 
-    search_result = search(query)
+    search_result = search(
+        query
+    )
 
-    query_types = search_result["query_types"]
-    fields = search_result["relevant_fields"]
+    query_types = search_result[
+        "query_types"
+    ]
 
-    company = search_result["matched_companies"]
+    fields = search_result[
+        "relevant_fields"
+    ]
+
+    company = search_result[
+        "matched_companies"
+    ]
+
     company_was_mentioned = search_result.get(
         "company_was_mentioned",
         False
@@ -53,7 +58,10 @@ def build_context(query):
     # Unknown company
     # =====================================================
 
-    if company_was_mentioned and not company:
+    if (
+        company_was_mentioned
+        and not company
+    ):
 
         return {
 
@@ -76,52 +84,135 @@ def build_context(query):
                 fields,
 
             "context":
-                ""
+                "",
+
+            "companies_without_data":
+                []
         }
 
 
     # =====================================================
     # MULTI-COMPANY RETRIEVAL
     #
-    # If multiple companies were detected, search for each
-    # company separately.
+    # Retrieve separately for every detected company.
+    # Each company gets its own top results.
     #
-    # This prevents one company's experiences from pushing
-    # another company's experiences out of the top-K results.
+    # companies_without_data tracks, by EXACT canonical
+    # dataset name, any matched company for which we could
+    # not find any usable rows (even after the per-company
+    # fallback search). Previously this was silently dropped
+    # — the loop just moved on — leaving the LLM to notice
+    # (or not notice) the gap on its own, and to invent its
+    # own label for that company using the user's original
+    # wording instead of the dataset's actual name. Tracking
+    # it explicitly here lets generate_answer.py report it
+    # deterministically and with the correct name, instead of
+    # leaving it to the model.
     # =====================================================
 
     if len(company) > 1:
 
         all_results = []
         candidate_count = 0
+        companies_without_data = []
 
         for company_name in company:
 
-            company_query = f"{query} at {company_name}"
+            company_rows = df[
+                df["company"] == company_name
+            ]
 
-            company_result = search(
-                company_query
+            candidate_count += len(
+                company_rows
             )
 
-            candidate_count += company_result.get(
-                "candidate_count",
-                0
-            )
+            if company_rows.empty:
+                companies_without_data.append(
+                    company_name
+                )
+                continue
 
-            for result in company_result.get(
-                "results",
-                []
-            ):
+            company_indices = company_rows.index.tolist()
 
-                # Avoid duplicate experiences
-                if result["index"] not in [
-                    item["index"]
-                    for item in all_results
-                ]:
+
+            # =================================================
+            # Retrieve this company's results
+            # =================================================
+
+            company_search_results = []
+
+            for result in search_result[
+                "results"
+            ]:
+
+                if result["index"] in company_indices:
+
+                    company_search_results.append(
+                        result
+                    )
+
+
+            # =================================================
+            # If the global top-K did not contain this
+            # company's results, perform a company-specific
+            # retrieval.
+            # =================================================
+
+            if not company_search_results:
+
+                company_result = search(
+                    f"{query} at {company_name}"
+                )
+
+                company_search_results = [
+                    result
+                    for result in company_result.get(
+                        "results",
+                        []
+                    )
+                    if result["company"] == company_name
+                ]
+
+
+            # =================================================
+            # If the fallback search STILL found nothing usable
+            # for this company, record it as having no data
+            # instead of silently dropping it.
+            # =================================================
+
+            if not company_search_results:
+                companies_without_data.append(
+                    company_name
+                )
+                continue
+
+
+            # =================================================
+            # Keep the best 2 results for this company
+            # =================================================
+
+            company_search_results = sorted(
+                company_search_results,
+                key=lambda x: x["similarity"],
+                reverse=True
+            )[:2]
+
+
+            # =================================================
+            # Add results without duplicates
+            # =================================================
+
+            for result in company_search_results:
+
+                if not any(
+                    existing["index"] == result["index"]
+                    for existing in all_results
+                ):
 
                     all_results.append(
                         result
                     )
+
 
         search_results = all_results
 
@@ -135,6 +226,8 @@ def build_context(query):
             "results"
         ]
 
+        companies_without_data = []
+
 
     # =====================================================
     # Build context
@@ -145,9 +238,13 @@ def build_context(query):
 
     for result in search_results:
 
-        index = result["index"]
+        index = result[
+            "index"
+        ]
 
-        row = df.iloc[index]
+        row = df.iloc[
+            index
+        ]
 
 
         # =================================================
@@ -238,5 +335,8 @@ def build_context(query):
             fields,
 
         "context":
-            context
+            context,
+
+        "companies_without_data":
+            companies_without_data
     }
